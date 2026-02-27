@@ -10,7 +10,7 @@ import antilink from './commands/antilink.js';
 import level from './commands/level.js';
 import { getGroupAdmins } from './lib/message.js';
 
-seeCommands()
+seeCommands();
 
 export default async (client, m) => {
     if (!m.message) return;
@@ -52,14 +52,14 @@ export default async (client, m) => {
     let prefix;
     if (Array.isArray(settings.prefix) || typeof settings.prefix === 'string') {
         const prefixArray = Array.isArray(settings.prefix) ? settings.prefix : [settings.prefix];
-        prefix = new RegExp('^(' + prefixes.join('|') + ')?(' + prefixArray.map(p => p.replace(/[|\{}()[\]^$+.-]/g, '\\$&')).join('|') + ')', 'i');
+        prefix = new RegExp('^(' + prefixes.join('|') + ')?(' + prefixArray.map(p => p.replace(/[|\\{}()[\]^$+*.\-]/g, '\\$&')).join('|') + ')', 'i');
     } else if (settings.prefix === true) {
         prefix = new RegExp('^', 'i');
     } else {
         prefix = new RegExp('^(' + prefixes.join('|') + ')?', 'i');
     }
 
-    const strRegex = (str) => str.replace(/[|\{}()[\]^$+?.]/g, '\\$&');
+    const strRegex = (str) => str.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
     let pluginPrefix = client.prefix ? client.prefix : prefix;
     let matchs = pluginPrefix instanceof RegExp ? [[pluginPrefix.exec(m.text), pluginPrefix]] : Array.isArray(pluginPrefix) ? pluginPrefix.map(p => {
         let regex = p instanceof RegExp ? p : new RegExp(strRegex(p));
@@ -122,28 +122,34 @@ export default async (client, m) => {
         return bots;
     }
 
-    // Sistema automático de bot primario
+    // ----------------------- Sistema de setprimary robusto -----------------------
     async function ensurePrimaryBot() {
         let botprimaryId = chatData.primaryBot;
-        if (!botprimaryId || botprimaryId === botJid) return true; // este bot es primario
-
         const participants = m.isGroup ? (await client.groupMetadata(m.chat).catch(() => ({ participants: [] }))).participants : [];
+        const activeBots = getAllSessionBots();
+
+        // Revisar si el primario está activo y en el grupo
         const primaryInGroup = participants.some(p => (p.phoneNumber || p.id) === botprimaryId);
-        const primaryOnline = getAllSessionBots().includes(botprimaryId);
+        const primaryOnline = activeBots.includes(botprimaryId);
 
-        if (!primaryOnline || !primaryInGroup) {
-            const availableBots = getAllSessionBots().filter(b => participants.some(p => (p.phoneNumber || p.id) === b));
-            if (availableBots.length > 0) botprimaryId = availableBots[0];
-            else botprimaryId = botJid;
-
+        // Si no hay primario o no está disponible, asignar uno automáticamente
+        if (!botprimaryId || !primaryInGroup || !primaryOnline) {
+            const availableBots = activeBots.filter(b => participants.some(p => (p.phoneNumber || p.id) === b));
+            botprimaryId = availableBots[0] || botJid; // fallback: este bot si no hay sub-bots
             chatData.primaryBot = botprimaryId;
-            console.log(`El bot primario se actualizó automáticamente: ${botprimaryId}`);
+            console.log(`🔹 Nuevo bot primario asignado automáticamente: ${botprimaryId}`);
+            if (botprimaryId !== botJid) {
+                // opcional: avisar en el grupo que cambió el primario
+                await client.sendMessage(m.chat, { text: `🔹 Nuevo bot primario asignado automáticamente: @${botprimaryId.split('@')[0]}`, mentions: [botprimaryId] });
+            }
         }
 
-        return botprimaryId === botJid;
+        return botprimaryId === botJid; // true si este bot es el primario final
     }
 
-    if (!(await ensurePrimaryBot())) return; // solo responde si este bot es primario
+    // Antes de ejecutar cualquier comando
+    if (!(await ensurePrimaryBot())) return; // solo responde si este bot es el primario
+    // -------------------------------------------------------------------------------
 
     if ((m.id.startsWith("3EB0") || (m.id.startsWith("BAE5") && m.id.length === 16) || (m.id.startsWith("B24E") && m.id.length === 20))) return;
     const isOwners = [botJid, ...(settings.owner ? [settings.owner] : []), ...global.owner.map(num => num + '@s.whatsapp.net')].includes(sender);
@@ -155,7 +161,7 @@ export default async (client, m) => {
     }
 
     if (chat?.isBanned && !(command === 'bot' && text === 'on') && !global.owner.map(num => num + '@s.whatsapp.net').includes(sender)) {
-        await m.reply(`ꕥ El bot *${settings.botname}* está desactivado en este grupo.\n\n> ✎ Un *administrador* puede activarlo con el comando:\n> » *${usedPrefix}bot on*)`);
+        await m.reply(`ꕥ El bot *${settings.botname}* está desactivado en este grupo.\n\n> ✎ Un *administrador* puede activarlo con el comando:\n> » *${usedPrefix}bot on*`);
         return;
     }
 
