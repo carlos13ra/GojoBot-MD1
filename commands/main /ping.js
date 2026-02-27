@@ -11,8 +11,6 @@ export default {
     const settings = global.db.data.settings[jid]
 
     const botname = settings.botname
-    const banner = settings.banner
-    const icon = settings.icon
 
     const start = performance.now()
 
@@ -32,23 +30,18 @@ export default {
 *🍙 Node  : ›* ${process.version}
 *🌿 Ram usage  : ›* ${ramUso} MB / ${totalMem} MB`
 
-    await conn.sendMessage(
-      m.chat,
-      {
-        text: teks,
-        contextInfo: {
-          externalAdReply: {
-            title: settings.nameid,
-            body: botname,
-            thumbnailUrl: icon,
-            sourceUrl: global.links.channel,
-            mediaType: 1,
-            renderLargerThumbnail: true
-          }
+    const rcanal = {
+      contextInfo: {
+        forwardingScore: 999,
+        isForwarded: true,
+        forwardedNewsletterMessageInfo: {
+          newsletterJid: settings.id,
+          newsletterName: settings.nameid
         }
-      },
-      { quoted: m }
-    )
+      }
+    }
+
+    await conn.reply(m.chat, teks, m, rcanal)
   }
 }
 
@@ -65,4 +58,4 @@ function formatTime(seconds) {
     m ? `${m}m` : '',
     s ? `${s}s` : ''
   ].filter(Boolean).join(' ')
-    }
+}
