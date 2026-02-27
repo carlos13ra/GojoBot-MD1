@@ -1,5 +1,6 @@
 import { performance } from 'perf_hooks'
 import os from 'os'
+import fetch from 'node-fetch'
 
 export default {
   command: ['p', 'ping'],
@@ -11,6 +12,7 @@ export default {
     const settings = global.db.data.settings[jid]
 
     const botname = settings.botname
+    const banner = settings.banner
 
     const start = performance.now()
 
@@ -30,6 +32,15 @@ export default {
 *🍙 Node  : ›* ${process.version}
 *🌿 Ram usage  : ›* ${ramUso} MB / ${totalMem} MB`
 
+    // 🔥 Convertir banner a buffer (PRO)
+    let buffer = null
+    try {
+      const res = await fetch(banner)
+      buffer = await res.buffer()
+    } catch {
+      buffer = null
+    }
+
     const rcanal = {
       contextInfo: {
         forwardingScore: 999,
@@ -41,7 +52,16 @@ export default {
       }
     }
 
-    await conn.reply(m.chat, teks, m, rcanal)
+    // 🔥 Enviar con imagen si carga, sino solo texto
+    if (buffer) {
+      await conn.sendMessage(m.chat, {
+        image: buffer,
+        caption: teks,
+        ...rcanal
+      }, { quoted: m })
+    } else {
+      await conn.reply(m.chat, teks, m, rcanal)
+    }
   }
 }
 
