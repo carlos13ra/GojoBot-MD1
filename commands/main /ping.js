@@ -1,81 +1,61 @@
 import { performance } from 'perf_hooks'
 import os from 'os'
-import { execSync } from 'child_process'
-
-const formatTime = s => {
-  s = Math.floor(s)
-  const d = Math.floor(s / 86400)
-  s %= 86400
-  const h = Math.floor(s / 3600)
-  s %= 3600
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return `${d ? d + 'd ' : ''}${h ? h + 'h ' : ''}${m ? m + 'm ' : ''}${sec}s`.trim()
-}
-
-function getNetworkStats() {
-  let rx = 0, tx = 0
-  try {
-    const data = execSync('cat /proc/net/dev').toString().split('\n')
-    for (const l of data) {
-      if (l.includes(':') && !l.includes('lo:')) {
-        const p = l.trim().split(/\s+/)
-        rx += Number(p[1]) || 0
-        tx += Number(p[9]) || 0
-      }
-    }
-  } catch {}
-  return { rx, tx }
-}
 
 export default {
-  command: ['ping', 'p'],
+  command: ['p', 'ping'],
   category: 'info',
 
   run: async (conn, m) => {
-    const start = performance.now()
-
-    const ping = (performance.now() - start).toFixed(2)
-
-    const totalMem = os.totalmem()
-    const freeMem = os.freemem()
-    const ramUso = ((totalMem - freeMem) / 1024 / 1024).toFixed(0)
-    const ramTotal = (totalMem / 1024 / 1024).toFixed(0)
-
-    const cpuLoad = Math.min(
-      100,
-      (os.loadavg()[0] * 100) / os.cpus().length
-    ).toFixed(1)
-
-    let diskTotal = 0, diskUsed = 0
     try {
-      const df = execSync('df -k /').toString().split('\n')[1].trim().split(/\s+/)
-      diskTotal = (df[0] * 1024 / 1024 / 1024).toFixed(1)
-      diskUsed = (df[1] * 1024 / 1024 / 1024).toFixed(1)
-    } catch {}
+      const start = performance.now()
 
-    const net = getNetworkStats()
+      // 🔹 CONFIG GLOBAL SEGURA
+      const botname = global.db?.data?.botname || global.botname || '𖹭  ׄ  ְ 🌱 𝐆𝐨𝐣𝐨𝐁𝐨𝐭-𝐌𝐃 ✩'
+      const rcanal = global.db?.data?.rcanal || global.rcanal || {}
 
-    const uptimeBot = formatTime(process.uptime())
+      // 🔹 MEDICIONES
+      await new Promise(r => setTimeout(r, 10))
+      const latensi = performance.now() - start
 
-    const teks = `╭─❍ *S T A T U S - P I N G*
-│
-│ 🍄 *Bot*       : ${botname}
-│ 🌳 *Latency*   : ${ping} ms
-│ 🌱 *Uptime*    : ${uptimeBot}
-│
-│ 🪷 *Sistema*   : ${os.platform()} (${os.arch()})
-│ 🍙 *NodeJS*    : ${process.version}
-│
-│ 🌿 *RAM*       : ${ramUso} / ${ramTotal} MB
-│ 🌲 *CPU*       : ${cpuLoad}%
-│ 💾 *Disco*     : ${diskUsed} / ${diskTotal} GB
-│
-│ 📡 *Network RX*: ${(net.rx / 1024 / 1024).toFixed(2)} MB
-│ 📡 *Network TX*: ${(net.tx / 1024 / 1024).toFixed(2)} MB
-╰───────────────❍`
+      const totalMem = os.totalmem() / 1024 / 1024
+      const freeMem = os.freemem() / 1024 / 1024
+      const ramUso = (totalMem - freeMem).toFixed(0)
+      const ramTotal = totalMem.toFixed(0)
 
-    // ✅ RESPUESTA CON CANAL
-    await conn.reply(m.chat, teks, m, rcanal)
+      const uptime = process.uptime()
+
+      // 🔹 TEXTO ESTILO BONITO + CANAL
+      const teks = `╭━〔 ✦ 𝐒𝐓𝐀𝐓𝐔𝐒 - 𝐏𝐈𝐍𝐆 ✦ 〕━⬣
+┃ 🍄 𝐁𝐨𝐭 : ${botname}
+┃ 🌳 𝐋𝐚𝐭𝐞𝐧𝐜𝐢𝐚 : ${latensi.toFixed(2)} ms
+┃ 🌱 𝐔𝐩𝐭𝐢𝐦𝐞 : ${formatTime(uptime)}
+┃ 🪷 𝐒𝐢𝐬𝐭𝐞𝐦𝐚 : ${os.platform()} (${os.arch()})
+┃ 🍙 𝐍𝐨𝐝𝐞 : ${process.version}
+┃ 🌿 𝐑𝐀𝐌 : ${ramUso} MB / ${ramTotal} MB
+╰━━━━━━━━━━━━━━━━⬣`
+
+      await conn.reply(m.chat, teks, m, rcanal)
+
+    } catch (e) {
+      console.error(e)
+      await conn.reply(m.chat, '❌ Error en el comando ping', m)
+    }
   }
+}
+
+// 🔹 FORMATO TIEMPO PRO
+function formatTime(seconds) {
+  seconds = Number(seconds)
+
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+
+  return [
+    d ? `${d}d` : '',
+    h ? `${h}h` : '',
+    m ? `${m}m` : '',
+    s ? `${s}s` : ''
+  ].filter(Boolean).join(' ')
 }
