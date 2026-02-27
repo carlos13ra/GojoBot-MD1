@@ -11,6 +11,10 @@ import level from './commands/level.js';
 
 seeCommands();
 
+// ====================
+// FUNCIONES AUXILIARES
+// ====================
+
 // Obtener todos los bots activos
 function getAllSessionBots() {
   const sessionDirs = ['./Sessions/Subs'];
@@ -31,42 +35,38 @@ function getAllSessionBots() {
   return bots;
 }
 
-// Elegir primary bot para un grupo con lógica de BOC/sub-bot
-function choosePrimaryBOC(groupId, groupParticipants) {
+// Elegir primary BOC para un grupo respetando setprimary
+function choosePrimaryBot(groupId, groupParticipants = []) {
   if (!global.db.data.primaryBots) global.db.data.primaryBots = {};
+  groupParticipants = Array.isArray(groupParticipants) ? groupParticipants : [];
 
-  const sessionBots = getAllSessionBots(); // todos los bots activos
+  const sessionBots = getAllSessionBots();
   const assignedBots = Object.values(global.db.data.primaryBots);
 
-  // Bots que están en el grupo
-  const botsInGroup = sessionBots.filter(bot => groupParticipants.includes(bot));
-
-  // Filtrar bots del mismo "servidor/creación" si existen
+  // Primary definido manualmente
   const currentPrimary = global.db.data.primaryBots[groupId];
-  let serverBotsInGroup = [];
-  if (currentPrimary) {
-    const serverId = currentPrimary.split('@')[0]; // Consideramos que sub-bots del mismo servidor tienen mismo prefijo
-    serverBotsInGroup = botsInGroup.filter(bot => bot.startsWith(serverId));
+
+  // Mantener primary manual si sigue disponible
+  if (currentPrimary && groupParticipants.includes(currentPrimary) && sessionBots.includes(currentPrimary)) {
+    return currentPrimary;
   }
 
-  // Elegir candidato
-  let candidates = serverBotsInGroup.length > 0 ? serverBotsInGroup : botsInGroup;
+  // Bots disponibles en el grupo
+  const botsInGroup = sessionBots.filter(bot => groupParticipants.includes(bot));
 
-  // Filtrar bots que no estén asignados a otros grupos (excepto el mismo grupo)
-  candidates = candidates.filter(bot => !assignedBots.includes(bot) || currentPrimary === bot);
-
+  // Elegir primer bot disponible que no esté asignado a otro grupo o mantener currentPrimary
+  const candidates = botsInGroup.filter(bot => !assignedBots.includes(bot) || currentPrimary === bot);
   if (candidates.length === 0) return null;
 
-  // Mantener el primary si sigue activo
-  if (currentPrimary && candidates.includes(currentPrimary)) return currentPrimary;
-
-  // Asignar el primero disponible
   const newPrimary = candidates[0];
   global.db.data.primaryBots[groupId] = newPrimary;
-  console.log(`🔹 Nuevo primary BOC para ${groupId}: ${newPrimary}`);
+  console.log(`✅ Nuevo primary bot para ${groupId}: ${newPrimary}`);
   return newPrimary;
 }
 
+// ====================
+// HANDLER PRINCIPAL
+// ====================
 export default async (client, m) => {
   if (!m.message) return;
 
@@ -84,7 +84,7 @@ export default async (client, m) => {
   initDB(m, client);
   antilink(client, m);
 
-  // Ejecutar plugins globales
+  // Plugins globales
   for (const name in global.plugins) {
     const plugin = global.plugins[name];
     if (plugin?.all) {
@@ -104,22 +104,18 @@ export default async (client, m) => {
   const rawBotname = settings.namebot || 'GojoBot - MD';
   const tipo = settings.type || 'Sub';
   const namebot = /^[\w\s]+$/.test(rawBotname) ? rawBotname : 'GojoBot - MD';
-
-  const shortForms = [namebot.charAt(0), namebot.split(" ")[0], tipo.split(" ")[0], namebot.split(" ")[0].slice(0, 2), namebot.split(" ")[0].slice(0, 3)];
+  const shortForms = [namebot.charAt(0), namebot.split(" ")[0], tipo.split(" ")[0], namebot.split(" ")[0].slice(0,2), namebot.split(" ")[0].slice(0,3)];
   const prefixes = [namebot, ...shortForms];
-
   const prefix = Array.isArray(settings.prefix)
     ? new RegExp(`^(${prefixes.join('|')})?(${settings.prefix.map(p => p.replace(/[|\\{}()[\]^$+*.\-\^]/g,'\\$&')).join('|')})`, 'i')
-    : settings.prefix === true ? new RegExp('^', 'i') : new RegExp(`^(${prefixes.join('|')})?`, 'i');
-
-  const strRegex = str => str.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&');
+    : settings.prefix === true ? new RegExp('^','i') : new RegExp(`^(${prefixes.join('|')})?`, 'i');
+  const strRegex = str => str.replace(/[|\\{}()[\]^$+*?.]/g,'\\$&');
   const pluginPrefix = client.prefix || prefix;
   const matchs = pluginPrefix instanceof RegExp
     ? [[pluginPrefix.exec(m.text), pluginPrefix]]
     : Array.isArray(pluginPrefix)
       ? pluginPrefix.map(p => [p instanceof RegExp ? p.exec(m.text) : new RegExp(strRegex(p)).exec(m.text), p])
       : [[new RegExp(strRegex(pluginPrefix)).exec(m.text), new RegExp(strRegex(pluginPrefix))]];
-
   const match = matchs.find(p => p[0]);
   if (!match) return;
 
@@ -130,16 +126,19 @@ export default async (client, m) => {
 
   // Metadata de grupo
   const pushname = m.pushName || 'Sin nombre';
-  let groupMetadata = null, groupAdmins = [], groupName = '';
+  let groupMetadata = null, groupAdmins = [], groupName = '', participantsIds = [];
   if (m.isGroup) {
     groupMetadata = await client.groupMetadata(m.chat).catch(() => null);
     groupName = groupMetadata?.subject || '';
     groupAdmins = groupMetadata?.participants.filter(p => ['admin','superadmin'].includes(p.admin)) || [];
+    participantsIds = groupMetadata?.participants?.map(p => p.jid) || [];
   }
+
   const isBotAdmins = m.isGroup ? groupAdmins.some(p => p.id === botJid || p.jid === botJid) : false;
   const isAdmins = m.isGroup ? groupAdmins.some(p => p.id === sender || p.jid === sender) : false;
+  const isOwners = [botJid, ...(settings.owner?[settings.owner]:[]), ...global.owner.map(num=>num+'@s.whatsapp.net')].includes(sender);
 
-  // LOG
+  // LOG de mensaje
   const h = chalk.bold.blue('╭────────────────────────────···');
   const t = chalk.bold.blue('╰────────────────────────────···');
   const v = chalk.bold.blue('│');
@@ -154,26 +153,21 @@ ${t}`);
   if (!users.stats) users.stats = {};
   if (!users.stats[today]) users.stats[today] = { msgs:0, cmds:0 };
   users.stats[today].msgs++;
-  user.usedcommands = (user.usedcommands||0);
+  user.usedcommands = (user.usedcommands||0) + 1;
 
-  const isOwners = [botJid, ...(settings.owner?[settings.owner]:[]), ...global.owner.map(num=>num+'@s.whatsapp.net')].includes(sender);
+  // Permisos y baneos
   if (!isOwners && settings.self) return;
   if (chat?.isBanned && !isOwners) return console.log(`⚠️ Chat ${from} está baneado`);
   if (chat.adminonly && !isAdmins) return console.log(`⚠️ Comando ${command} solo para admins`);
 
   // =========================
-  // Primary BOC por grupo con failover
+  // PrimaryBot por grupo con setprimary y failover
   // =========================
-  const participantsIds = m.isGroup ? groupMetadata?.participants.map(p => p.jid) || [] : [];
-  const botAssigned = choosePrimaryBOC(from, participantsIds);
-
+  const botAssigned = choosePrimaryBot(from, participantsIds);
   if (botAssigned !== botJid) {
     console.log(`🔹 Bot ${botJid} ignora grupo ${from}, primary es ${botAssigned}`);
-    return; // solo responde el bot asignado
+    return;
   }
-
-  // Comandos críticos
-  const criticalCommands = ['ban','unban','setbotname','setprefix','setowner'];
 
   // Ejecutar comando
   const cmdData = global.comandos.get(command);
@@ -192,10 +186,15 @@ ${t}`);
     user.exp = (user.exp||0) + Math.floor(Math.random()*100);
     user.name = m.pushName;
 
-    // Solo primary ejecuta comandos críticos
-    if (criticalCommands.includes(command) && botAssigned !== botJid) return;
+    // Ejecutar banner/canal/ícono si existe
+    if (cmdData.runBanner) {
+      try {
+        await cmdData.runBanner(client, m, args, usedPrefix, command, text, { groupMetadata, settings });
+      } catch(e){ console.error('Error en banner/canal:', e); }
+    }
 
-    await cmdData.run(client,m,args,usedPrefix,command,text);
+    // Ejecutar comando principal
+    await cmdData.run(client, m, args, usedPrefix, command, text);
   } catch(error) {
     await client.sendMessage(m.chat,{ text:`《✧》 Error al ejecutar el comando\n${error}` },{ quoted:m });
   }
