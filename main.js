@@ -10,7 +10,7 @@ import antilink from './commands/antilink.js';
 import level from './commands/level.js';
 import { getGroupAdmins } from './lib/message.js';
 
-seeCommands()
+seeCommands();
 
 export default async (client, m) => {
   if (!m.message) return;
@@ -23,11 +23,16 @@ export default async (client, m) => {
 
   const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-  // 🔥 INTERCEPTAMOS TODOS LOS MENSAJES DEL BOT
+  // 🔥 INTERCEPTAR TODOS LOS MENSAJES DEL BOT RESPECTANDO primaryBot
   const originalSendMessage = client.sendMessage.bind(client);
   client.sendMessage = async (jid, message, options = {}) => {
     try {
       const botJid = client.user.id.split(':')[0] + '@s.whatsapp.net';
+      const chat = global.db.data.chats[jid] || {};
+
+      // 🔹 Respetar primaryBot
+      if (chat.primaryBot && chat.primaryBot !== botJid) return;
+
       const settings = global.db.data.settings[botJid] || {};
 
       // Solo aplica si el mensaje no tiene imagen
