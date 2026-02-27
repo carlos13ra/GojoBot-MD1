@@ -21,11 +21,11 @@ export default async (client, m) => {
     const user = global.db.data.users[sender] ||= {};
     const users = chat.users[sender] ||= {};
 
-    // Obtener texto del mensaje
-    const body = m.message.conversation || m.message.extendedTextMessage?.text || 
-                 m.message.imageMessage?.caption || m.message.videoMessage?.caption || 
-                 m.message.buttonsResponseMessage?.selectedButtonId || 
-                 m.message.listResponseMessage?.singleSelectReply?.selectedRowId || 
+    // Texto del mensaje
+    const body = m.message.conversation || m.message.extendedTextMessage?.text ||
+                 m.message.imageMessage?.caption || m.message.videoMessage?.caption ||
+                 m.message.buttonsResponseMessage?.selectedButtonId ||
+                 m.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
                  m.message.templateButtonReplyMessage?.selectedId || '';
 
     initDB(m, client);
@@ -35,12 +35,12 @@ export default async (client, m) => {
     for (const name in global.plugins) {
         const plugin = global.plugins[name];
         if (plugin?.all) {
-            try { await plugin.all.call(client, m, { client }); } 
+            try { await plugin.all.call(client, m, { client }); }
             catch (err) { console.error(`Error plugin.all -> ${name}`, err); }
         }
     }
 
-    // ----------------- SISTEMA DE PRIMARIO -----------------
+    // ---------------- SISTEMA DE PRIMARIO ----------------
     const getAllSessionBots = () => {
         const sessionDirs = ['./Sessions/Subs'];
         let bots = [];
@@ -60,18 +60,23 @@ export default async (client, m) => {
     };
 
     const allBots = getAllSessionBots();
-    chat.primaryBot ||= botJid; // si no existe primario, usamos este bot
-    // Si primario no está conectado, fallback a otro sub-bot activo
+
+    // Asignar primario si no hay
+    if (!chat.primaryBot) chat.primaryBot = botJid;
+
+    // Si primario no está online, asignar un sub-bot activo
     if (!allBots.includes(chat.primaryBot)) chat.primaryBot = allBots[0] || botJid;
 
-    // Solo responde el primario
+    // Solo el bot primario responde
     if (chat.primaryBot !== botJid) return;
 
-    // ----------------- PERMISOS -----------------
+    // ---------------- PERMISOS ----------------
     let groupAdmins = [];
     if (m.isGroup) {
         const groupMetadata = await client.groupMetadata(m.chat).catch(()=>({participants:[]}));
-        groupAdmins = groupMetadata.participants.filter(p => p.admin === 'admin' || p.admin === 'superadmin').map(p => p.id || p.jid || p.phoneNumber);
+        groupAdmins = groupMetadata.participants
+            .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
+            .map(p => p.id || p.jid || p.phoneNumber);
     }
     const isAdmins = m.isGroup ? groupAdmins.includes(sender) : false;
     const isOwner = [botJid, ...(settings.owner||[]), ...global.owner.map(n=>n+'@s.whatsapp.net')].includes(sender);
@@ -79,18 +84,18 @@ export default async (client, m) => {
     if (!isOwner && settings.self) return;
     if (chat.adminonly && !isAdmins && !isOwner) return;
 
-    // ----------------- COMANDOS -----------------
+    // ---------------- COMANDOS ----------------
     const usedPrefix = settings.prefix || '';
     const args = body.slice(usedPrefix.length).trim().split(' ');
     const command = (args.shift() || '').toLowerCase();
     const text = args.join(' ');
 
-    if (!command) return; // Mensajes sin comandos se ignoran aquí, solo plugins.all los procesan
+    if (!command) return; // Mensajes sin comando solo plugins.all los procesan
 
     const cmdData = global.comandos.get(command);
     if (!cmdData) return;
 
-    if ((cmdData.isOwner && !isOwner) || 
+    if ((cmdData.isOwner && !isOwner) ||
         (cmdData.isAdmin && !isAdmins && !isOwner) ||
         (cmdData.botAdmin && !(await client.isBotAdmin(from)))) return;
 
