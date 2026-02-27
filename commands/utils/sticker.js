@@ -58,7 +58,7 @@ export default {
 
       const user = global.db?.data?.users?.[m.sender] || {}
       const name = user.name || ''
-      const texto1 = user.metadatos || "'ׄ𐚁ִㅤShinobuׄ ₍ ᐢ..ᐢ ₎'"
+      const texto1 = user.metadatos || "'ׄ𐚁ִ.ɢᴏᴊᴏʙᴏᴛ - ᴍᴅ ✦"
       const texto2 = user.metadatos2 || `@${name}`
 
       const { urlArg, picked, marca } = parseArgs(args)
