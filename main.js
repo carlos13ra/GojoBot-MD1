@@ -21,7 +21,7 @@ export default async (client, m) => {
     const user = global.db.data.users[sender] ||= {};
     const users = chat.users[sender] ||= {};
 
-    // Obtener texto
+    // Obtener texto del mensaje
     const body = m.message.conversation || m.message.extendedTextMessage?.text || 
                  m.message.imageMessage?.caption || m.message.videoMessage?.caption || 
                  m.message.buttonsResponseMessage?.selectedButtonId || 
@@ -60,20 +60,21 @@ export default async (client, m) => {
     };
 
     const allBots = getAllSessionBots();
-    let primaryBot = chat.primaryBot || botJid;
-
-    // Fallback automático
-    if (!allBots.includes(primaryBot)) {
-        chat.primaryBot = allBots[0] || botJid;
-        primaryBot = chat.primaryBot;
-    }
+    chat.primaryBot ||= botJid; // si no existe primario, usamos este bot
+    // Si primario no está conectado, fallback a otro sub-bot activo
+    if (!allBots.includes(chat.primaryBot)) chat.primaryBot = allBots[0] || botJid;
 
     // Solo responde el primario
-    if (primaryBot !== botJid) return;
+    if (chat.primaryBot !== botJid) return;
 
     // ----------------- PERMISOS -----------------
-    const isAdmins = m.isGroup ? (await getGroupAdmins(client, from)).includes(sender) : false;
-    const isOwner = [botJid, ...(settings.owner ? [settings.owner] : []), ...global.owner.map(n => n+'@s.whatsapp.net')].includes(sender);
+    let groupAdmins = [];
+    if (m.isGroup) {
+        const groupMetadata = await client.groupMetadata(m.chat).catch(()=>({participants:[]}));
+        groupAdmins = groupMetadata.participants.filter(p => p.admin === 'admin' || p.admin === 'superadmin').map(p => p.id || p.jid || p.phoneNumber);
+    }
+    const isAdmins = m.isGroup ? groupAdmins.includes(sender) : false;
+    const isOwner = [botJid, ...(settings.owner||[]), ...global.owner.map(n=>n+'@s.whatsapp.net')].includes(sender);
 
     if (!isOwner && settings.self) return;
     if (chat.adminonly && !isAdmins && !isOwner) return;
@@ -83,6 +84,8 @@ export default async (client, m) => {
     const args = body.slice(usedPrefix.length).trim().split(' ');
     const command = (args.shift() || '').toLowerCase();
     const text = args.join(' ');
+
+    if (!command) return; // Mensajes sin comandos se ignoran aquí, solo plugins.all los procesan
 
     const cmdData = global.comandos.get(command);
     if (!cmdData) return;
