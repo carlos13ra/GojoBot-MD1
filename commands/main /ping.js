@@ -6,51 +6,58 @@ export default {
   category: 'info',
 
   run: async (conn, m) => {
-    try {
-      const start = performance.now()
 
-      // 🔹 CONFIG GLOBAL SEGURA
-      const botname = global.db?.data?.botname || global.botname || '𖹭  ׄ  ְ 🌱 𝐆𝐨𝐣𝐨𝐁𝐨𝐭-𝐌𝐃 ✩'
-      const rcanal = global.db?.data?.rcanal || global.rcanal || {}
+    const jid = conn.user.id.split(':')[0] + '@s.whatsapp.net'
+    const settings = global.db.data.settings[jid]
 
-      // 🔹 MEDICIONES
-      await new Promise(r => setTimeout(r, 10))
-      const latensi = performance.now() - start
+    const botname = settings.botname
+    const banner = settings.banner
+    const icon = settings.icon
 
-      const totalMem = os.totalmem() / 1024 / 1024
-      const freeMem = os.freemem() / 1024 / 1024
-      const ramUso = (totalMem - freeMem).toFixed(0)
-      const ramTotal = totalMem.toFixed(0)
+    const start = performance.now()
 
-      const uptime = process.uptime()
+    let totalMem = (os.totalmem() / 1024 / 1024).toFixed(0)
+    let freeMem = (os.freemem() / 1024 / 1024).toFixed(0)
+    let ramUso = totalMem - freeMem
+    let uptime = process.uptime()
 
-      // 🔹 TEXTO ESTILO BONITO + CANAL
-      const teks = `╭━〔 ✦ 𝐒𝐓𝐀𝐓𝐔𝐒 - 𝐏𝐈𝐍𝐆 ✦ 〕━⬣
-┃ 🍄 𝐁𝐨𝐭 : ${botname}
-┃ 🌳 𝐋𝐚𝐭𝐞𝐧𝐜𝐢𝐚 : ${latensi.toFixed(2)} ms
-┃ 🌱 𝐔𝐩𝐭𝐢𝐦𝐞 : ${formatTime(uptime)}
-┃ 🪷 𝐒𝐢𝐬𝐭𝐞𝐦𝐚 : ${os.platform()} (${os.arch()})
-┃ 🍙 𝐍𝐨𝐝𝐞 : ${process.version}
-┃ 🌿 𝐑𝐀𝐌 : ${ramUso} MB / ${ramTotal} MB
-╰━━━━━━━━━━━━━━━━⬣`
+    const latensi = (performance.now() - start).toFixed(3)
 
-      await conn.reply(m.chat, teks, m, rcanal)
+    let teks = `*'ׄ𐚁ִㅤS T A T U S - PINGׄ ₍ ᐢ..ᐢ ₎'*
 
-    } catch (e) {
-      console.error(e)
-      await conn.reply(m.chat, '❌ Error en el comando ping', m)
-    }
+*🍄 Bot      : ›* ${botname}
+*🌳 Latency : ›* ${latensi} ms
+*🌱 Uptime  : ›* ${formatTime(uptime)}
+*🪷 Sistema  : ›* ${os.platform()} (${os.arch()}) 
+*🍙 Node  : ›* ${process.version}
+*🌿 Ram usage  : ›* ${ramUso} MB / ${totalMem} MB`
+
+    await conn.sendMessage(
+      m.chat,
+      {
+        text: teks,
+        contextInfo: {
+          externalAdReply: {
+            title: settings.nameid,
+            body: botname,
+            thumbnailUrl: icon,
+            sourceUrl: global.links.channel,
+            mediaType: 1,
+            renderLargerThumbnail: true
+          }
+        }
+      },
+      { quoted: m }
+    )
   }
 }
 
-// 🔹 FORMATO TIEMPO PRO
 function formatTime(seconds) {
   seconds = Number(seconds)
-
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
+  let d = Math.floor(seconds / (3600 * 24))
+  let h = Math.floor(seconds % (3600 * 24) / 3600)
+  let m = Math.floor(seconds % 3600 / 60)
+  let s = Math.floor(seconds % 60)
 
   return [
     d ? `${d}d` : '',
@@ -58,4 +65,4 @@ function formatTime(seconds) {
     m ? `${m}m` : '',
     s ? `${s}s` : ''
   ].filter(Boolean).join(' ')
-}
+    }
