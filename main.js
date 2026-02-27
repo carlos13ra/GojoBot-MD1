@@ -1,116 +1,116 @@
-import fs from 'fs';
-import path from 'path';
+import ws from 'ws';
 import moment from 'moment';
 import chalk from 'chalk';
+import fs from 'fs';
+import path from 'path';
 import gradient from 'gradient-string';
 import seeCommands from './lib/system/commandLoader.js';
 import initDB from './lib/system/initDB.js';
 import antilink from './commands/antilink.js';
 import level from './commands/level.js';
-import { getGroupAdmins } from './lib/message.js';
 
 seeCommands();
 
 export default async (client, m) => {
-    if (!m.message) return;
-    const sender = m.sender;
-    const from = m.key.remoteJid;
-    const botJid = client.user.id.split(':')[0] + '@s.whatsapp.net';
-    const chat = global.db.data.chats[from] ||= {};
-    const settings = global.db.data.settings[botJid] ||= {};
-    const user = global.db.data.users[sender] ||= {};
-    const users = chat.users[sender] ||= {};
+  if (!m.message) return;
+  const sender = m.sender;
+  const from = m.key.remoteJid;
+  const botJid = client.user.id.split(':')[0] + '@s.whatsapp.net';
 
-    // Texto del mensaje
-    const body = m.message.conversation || m.message.extendedTextMessage?.text ||
-                 m.message.imageMessage?.caption || m.message.videoMessage?.caption ||
-                 m.message.buttonsResponseMessage?.selectedButtonId ||
-                 m.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                 m.message.templateButtonReplyMessage?.selectedId || '';
+  initDB(m, client);
+  antilink(client, m);
 
-    initDB(m, client);
-    antilink(client, m);
-
-    // Ejecutar plugin.all
-    for (const name in global.plugins) {
-        const plugin = global.plugins[name];
-        if (plugin?.all) {
-            try { await plugin.all.call(client, m, { client }); }
-            catch (err) { console.error(`Error plugin.all -> ${name}`, err); }
-        }
+  // Ejecutar plugins "all" ligeros
+  for (const name in global.plugins) {
+    const plugin = global.plugins[name];
+    if (plugin?.all) {
+      try { await plugin.all.call(client, m, { client }); }
+      catch (err) { console.error(`Error en plugin.all -> ${name}`, err); }
     }
+  }
 
-    // ---------------- SISTEMA DE PRIMARIO ----------------
-    const getAllSessionBots = () => {
-        const sessionDirs = ['./Sessions/Subs'];
-        let bots = [];
-        for (const dir of sessionDirs) {
-            try {
-                const subDirs = fs.readdirSync(path.resolve(dir));
-                for (const sub of subDirs) {
-                    const creds = path.resolve(dir, sub, 'creds.json');
-                    if (fs.existsSync(creds)) bots.push(sub+'@s.whatsapp.net');
-                }
-            } catch {}
-        }
-        // Owner bot
-        const ownerCreds = path.resolve('./Sessions/Owner/creds.json');
-        if (fs.existsSync(ownerCreds)) bots.push(botJid);
-        return bots;
-    };
+  // Datos de usuario, chat y bot
+  const chat = global.db.data.chats[from] || {};
+  const settings = global.db.data.settings[botJid] || {};
+  const user = global.db.data.users[sender] ||= {};
+  const users = chat.users?.[sender] ||= {};
 
-    const allBots = getAllSessionBots();
+  // Prefijos
+  const namebot = settings.namebot || 'GojoBot - MD';
+  const prefixList = Array.isArray(settings.prefix) ? settings.prefix : typeof settings.prefix === 'string' ? [settings.prefix] : ['/', '!', '.'];
+  const prefix = new RegExp(`^(${namebot}|${prefixList.join('|')})`, 'i');
+  const text = m.message.conversation || m.message.extendedTextMessage?.text || '';
 
-    // Asignar primario si no hay
-    if (!chat.primaryBot) chat.primaryBot = botJid;
+  if (!text.match(prefix)) return;
 
-    // Si primario no está online, asignar un sub-bot activo
-    if (!allBots.includes(chat.primaryBot)) chat.primaryBot = allBots[0] || botJid;
+  const args = text.replace(prefix, '').trim().split(/ +/);
+  const command = args.shift()?.toLowerCase();
 
-    // Solo el bot primario responde
-    if (chat.primaryBot !== botJid) return;
+  if (!command) return;
 
-    // ---------------- PERMISOS ----------------
-    let groupAdmins = [];
-    if (m.isGroup) {
-        const groupMetadata = await client.groupMetadata(m.chat).catch(()=>({participants:[]}));
-        groupAdmins = groupMetadata.participants
-            .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
-            .map(p => p.id || p.jid || p.phoneNumber);
-    }
-    const isAdmins = m.isGroup ? groupAdmins.includes(sender) : false;
-    const isOwner = [botJid, ...(settings.owner||[]), ...global.owner.map(n=>n+'@s.whatsapp.net')].includes(sender);
+  // Datos de grupo
+  let groupAdmins = [], groupName = '';
+  if (m.isGroup) {
+    const meta = await client.groupMetadata(from).catch(() => ({ participants: [] }));
+    groupName = meta.subject || '';
+    groupAdmins = meta.participants.filter(p => ['admin', 'superadmin'].includes(p.admin));
+  }
 
-    if (!isOwner && settings.self) return;
-    if (chat.adminonly && !isAdmins && !isOwner) return;
+  const isAdmins = m.isGroup && groupAdmins.some(p => [p.jid, p.id, p.phoneNumber].includes(sender));
+  const isBotAdmins = m.isGroup && groupAdmins.some(p => [p.jid, p.id, p.phoneNumber].includes(botJid));
 
-    // ---------------- COMANDOS ----------------
-    const usedPrefix = settings.prefix || '';
-    const args = body.slice(usedPrefix.length).trim().split(' ');
-    const command = (args.shift() || '').toLowerCase();
-    const text = args.join(' ');
+  // Manejo Primary/Sub-Bots
+  function getAllBots() {
+    const bots = [];
+    const dirs = ['./Sessions/Subs', './Sessions/Owner'];
+    dirs.forEach(dir => {
+      try {
+        fs.readdirSync(path.resolve(dir)).forEach(sub => {
+          if (fs.existsSync(path.join(dir, sub, 'creds.json'))) bots.push(sub + '@s.whatsapp.net');
+        });
+      } catch {}
+    });
+    return bots;
+  }
 
-    if (!command) return; // Mensajes sin comando solo plugins.all los procesan
+  const botPrimary = chat.primaryBot;
+  if (botPrimary && botPrimary !== botJid) {
+    const activeBots = getAllBots();
+    if (!activeBots.includes(botPrimary)) chat.primaryBot = botJid; // Si primary cae, elegir este bot
+    if (chat.primaryBot !== botJid) return; // Solo responde primary
+  } else {
+    chat.primaryBot ||= botJid;
+  }
 
-    const cmdData = global.comandos.get(command);
-    if (!cmdData) return;
+  // Comprobaciones de comando
+  const cmdData = global.comandos.get(command);
+  if (!cmdData) {
+    await client.readMessages([m.key]);
+    return m.reply(`El comando *${command}* no existe. Usa *${prefixList[0]}help* para ver la lista.`);
+  }
 
-    if ((cmdData.isOwner && !isOwner) ||
-        (cmdData.isAdmin && !isAdmins && !isOwner) ||
-        (cmdData.botAdmin && !(await client.isBotAdmin(from)))) return;
+  if (cmdData.isOwner && !global.owner.map(o => o + '@s.whatsapp.net').includes(sender)) return;
+  if (cmdData.isAdmin && !isAdmins) return m.reply('Solo administradores pueden usar este comando.');
+  if (cmdData.botAdmin && !isBotAdmins) return m.reply('El bot debe ser administrador.');
 
-    try {
-        await client.readMessages([m.key]);
-        user.usedcommands = (user.usedcommands || 0)+1;
-        settings.commandsejecut = (settings.commandsejecut || 0)+1;
-        users.usedTime = new Date();
-        users.lastCmd = Date.now();
-        user.exp = (user.exp || 0) + Math.floor(Math.random()*100);
-        user.name = m.pushName;
-        await cmdData.run(client, m, args, usedPrefix, command, text);
-    } catch (err) {
-        await client.sendMessage(m.chat, { text: `Error al ejecutar comando:\n${err}` }, { quoted: m });
-    }
+  // Stats y nivel
+  const today = new Date().toLocaleDateString('es-CO', { timeZone: 'America/Bogota' }).split('/').reverse().join('-');
+  user.stats ||= {};
+  user.stats[today] ||= { msgs: 0, cmds: 0 };
+  user.stats[today].msgs++;
+  users.stats ||= {};
+  users.stats[today] ||= { cmds: 0 };
+  users.stats[today].cmds++;
 
-    level(m);
+  user.usedcommands = (user.usedcommands || 0) + 1;
+  settings.commandsejecut = (settings.commandsejecut || 0) + 1;
+
+  try {
+    await client.readMessages([m.key]);
+    await cmdData.run(client, m, args, prefixList[0], command, text);
+  } catch (err) {
+    await client.sendMessage(m.chat, { text: `Error al ejecutar comando:\n${err}` }, { quoted: m });
+  }
+
+  level(m);
 };
