@@ -35,29 +35,25 @@ function getAllSessionBots() {
   return bots;
 }
 
-// Elegir primary BOC para un grupo respetando setprimary
+// Elegir primary bot para un grupo respetando setprimary y failover
 function choosePrimaryBot(groupId, groupParticipants = []) {
   if (!global.db.data.primaryBots) global.db.data.primaryBots = {};
   groupParticipants = Array.isArray(groupParticipants) ? groupParticipants : [];
 
   const sessionBots = getAllSessionBots();
-  const assignedBots = Object.values(global.db.data.primaryBots);
-
-  // Primary definido manualmente
   const currentPrimary = global.db.data.primaryBots[groupId];
 
-  // Mantener primary manual si sigue disponible
-  if (currentPrimary && groupParticipants.includes(currentPrimary) && sessionBots.includes(currentPrimary)) {
+  // Mantener primary manual si sigue activo y en el grupo
+  if (currentPrimary && sessionBots.includes(currentPrimary) && groupParticipants.includes(currentPrimary)) {
     return currentPrimary;
   }
 
-  // Bots disponibles en el grupo
-  const botsInGroup = sessionBots.filter(bot => groupParticipants.includes(bot));
+  // Filtrar bots disponibles en el grupo
+  const candidates = sessionBots.filter(bot => groupParticipants.includes(bot));
 
-  // Elegir primer bot disponible que no esté asignado a otro grupo o mantener currentPrimary
-  const candidates = botsInGroup.filter(bot => !assignedBots.includes(bot) || currentPrimary === bot);
   if (candidates.length === 0) return null;
 
+  // Asignar el primer candidato como primary
   const newPrimary = candidates[0];
   global.db.data.primaryBots[groupId] = newPrimary;
   console.log(`✅ Nuevo primary bot para ${groupId}: ${newPrimary}`);
@@ -161,13 +157,11 @@ ${t}`);
   if (chat.adminonly && !isAdmins) return console.log(`⚠️ Comando ${command} solo para admins`);
 
   // =========================
-  // PrimaryBot por grupo con setprimary y failover
+  // PrimaryBot por grupo con setprimary y failover solo de sub-bots en el grupo
   // =========================
   const botAssigned = choosePrimaryBot(from, participantsIds);
-  if (botAssigned !== botJid) {
-    console.log(`🔹 Bot ${botJid} ignora grupo ${from}, primary es ${botAssigned}`);
-    return;
-  }
+  if (!botAssigned) return console.log(`❌ No hay bots disponibles en el grupo ${from}`);
+  if (botAssigned !== botJid) return console.log(`🔹 Bot ${botJid} ignora grupo ${from}, primary es ${botAssigned}`);
 
   // Ejecutar comando
   const cmdData = global.comandos.get(command);
@@ -188,9 +182,8 @@ ${t}`);
 
     // Ejecutar banner/canal/ícono si existe
     if (cmdData.runBanner) {
-      try {
-        await cmdData.runBanner(client, m, args, usedPrefix, command, text, { groupMetadata, settings });
-      } catch(e){ console.error('Error en banner/canal:', e); }
+      try { await cmdData.runBanner(client, m, args, usedPrefix, command, text, { groupMetadata, settings }); }
+      catch(e){ console.error('Error en banner/canal:', e); }
     }
 
     // Ejecutar comando principal
