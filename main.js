@@ -37,14 +37,16 @@ export default async (client, m) => {
 
     const from = m.key.remoteJid;
     const botJid = client.user.id.split(':')[0] + '@s.whatsapp.net';
-    const chat = global.db.data.chats[m.chat] || {};
+    const chat = global.db.data.chats[m.chat] ||= {};
     const settings = global.db.data.settings[botJid] || {};
     const user = global.db.data.users[sender] ||= {};
-    const users = chat.users[sender] || {};
+    const users = chat.users[sender] ||= {};
     const rawBotname = settings.namebot || 'GojoBot - MD';
     const tipo = settings.type || 'Sub';
     const isValidBotname = /^[\w\s]+$/.test(rawBotname);
     const namebot = isValidBotname ? rawBotname : 'GojoBot - MD';
+
+    // ---------------------------- Prefijos ----------------------------
     const shortForms = [namebot.charAt(0), namebot.split(" ")[0], tipo.split(" ")[0], namebot.split(" ")[0].slice(0, 2), namebot.split(" ")[0].slice(0, 3)];
     const prefixes = shortForms.map(name => `${name}`);
     prefixes.unshift(namebot);
@@ -67,7 +69,6 @@ export default async (client, m) => {
     }) : typeof pluginPrefix === 'string' ? [[new RegExp(strRegex(pluginPrefix)).exec(m.text), new RegExp(strRegex(pluginPrefix))]] : [[null, null]];
     let match = matchs.find(p => p[0]);
 
-    // Ejecutar plugin.before
     for (const name in global.plugins) {
         const plugin = global.plugins[name];
         if (!plugin || plugin.disabled) continue;
@@ -83,9 +84,8 @@ export default async (client, m) => {
     let args = m.text.slice(usedPrefix.length).trim().split(" ");
     let command = (args.shift() || '').toLowerCase();
     let text = args.join(' ');
-    const pushname = m.pushName || 'Sin nombre';
 
-    // Grupo
+    const pushname = m.pushName || 'Sin nombre';
     let groupMetadata = null, groupAdmins = [], groupName = '';
     if (m.isGroup) {
         groupMetadata = await client.groupMetadata(m.chat).catch(() => null);
@@ -95,12 +95,9 @@ export default async (client, m) => {
 
     const isBotAdmins = m.isGroup ? groupAdmins.some(p => (p.phoneNumber || p.id) === botJid) : false;
     const isAdmins = m.isGroup ? groupAdmins.some(p => (p.phoneNumber || p.id) === sender) : false;
-    const chatData = global.db.data.chats[from];
 
-    const hasPrefix = settings.prefix === true ? true : (Array.isArray(settings.prefix) ? settings.prefix : typeof settings.prefix === 'string' ? [settings.prefix] : []).some(p => m.text?.startsWith(p));
-
-    // Función para obtener todos los bots disponibles
-    function getAllSessionBots() {
+    // ----------------- SISTEMA DE SETPRIMARY -----------------
+    const allBots = (() => {
         const sessionDirs = ['./Sessions/Subs'];
         let bots = [];
         for (const dir of sessionDirs) {
@@ -114,43 +111,26 @@ export default async (client, m) => {
         }
         try {
             const ownerCreds = path.resolve('./Sessions/Owner/creds.json');
-            if (fs.existsSync(ownerCreds)) {
-                const ownerId = client.user.id.split(':')[0] + '@s.whatsapp.net';
-                bots.push(ownerId);
-            }
+            if (fs.existsSync(ownerCreds)) bots.push(botJid);
         } catch {}
         return bots;
+    })();
+
+    let primaryBot = chat.primaryBot || botJid;
+
+    // Si el primario no está en sesión, asignar uno automáticamente
+    if (!allBots.includes(primaryBot)) {
+        const available = allBots[0] || botJid;
+        chat.primaryBot = available;
+        primaryBot = available;
+        if (primaryBot !== botJid) return; // este sub-bot no responde todavía
     }
 
-    // ----------------------- Sistema de setprimary robusto -----------------------
-    async function ensurePrimaryBot() {
-        let botprimaryId = chatData.primaryBot;
-        const participants = m.isGroup ? (await client.groupMetadata(m.chat).catch(() => ({ participants: [] }))).participants : [];
-        const activeBots = getAllSessionBots();
+    // Si este bot no es primario, NO hacer nada
+    if (primaryBot !== botJid) return;
+    // -----------------------------------------------------------
 
-        // Revisar si el primario está activo y en el grupo
-        const primaryInGroup = participants.some(p => (p.phoneNumber || p.id) === botprimaryId);
-        const primaryOnline = activeBots.includes(botprimaryId);
-
-        // Si no hay primario o no está disponible, asignar uno automáticamente
-        if (!botprimaryId || !primaryInGroup || !primaryOnline) {
-            const availableBots = activeBots.filter(b => participants.some(p => (p.phoneNumber || p.id) === b));
-            botprimaryId = availableBots[0] || botJid; // fallback: este bot si no hay sub-bots
-            chatData.primaryBot = botprimaryId;
-            console.log(`🔹 Nuevo bot primario asignado automáticamente: ${botprimaryId}`);
-            if (botprimaryId !== botJid) {
-                // opcional: avisar en el grupo que cambió el primario
-                await client.sendMessage(m.chat, { text: `🔹 Nuevo bot primario asignado automáticamente: @${botprimaryId.split('@')[0]}`, mentions: [botprimaryId] });
-            }
-        }
-
-        return botprimaryId === botJid; // true si este bot es el primario final
-    }
-
-    // Antes de ejecutar cualquier comando
-    if (!(await ensurePrimaryBot())) return; // solo responde si este bot es el primario
-    // -------------------------------------------------------------------------------
-
+    // ----------------- BLOQUEOS DE COMANDOS -----------------
     if ((m.id.startsWith("3EB0") || (m.id.startsWith("BAE5") && m.id.length === 16) || (m.id.startsWith("B24E") && m.id.length === 20))) return;
     const isOwners = [botJid, ...(settings.owner ? [settings.owner] : []), ...global.owner.map(num => num + '@s.whatsapp.net')].includes(sender);
     if (!isOwners && settings.self) return;
@@ -165,9 +145,9 @@ export default async (client, m) => {
         return;
     }
 
-    // Stats de mensajes y comandos
-    const today = new Date().toLocaleDateString('es-CO', { timeZone: 'America/Bogota', year:'numeric', month:'2-digit', day:'2-digit' }).split('/').reverse().join('-');
-    const userrs = chatData.users[sender] || {};
+    // ----------------- STATS -----------------
+    const today = new Date().toLocaleDateString('es-CO', { timeZone:'America/Bogota', year:'numeric', month:'2-digit', day:'2-digit' }).split('/').reverse().join('-');
+    const userrs = chat.users[sender] ||= {};
     if (!userrs.stats) userrs.stats = {};
     if (!userrs.stats[today]) userrs.stats[today] = { msgs:0, cmds:0 };
     userrs.stats[today].msgs++;
@@ -182,7 +162,7 @@ export default async (client, m) => {
         return m.reply(`ꕤ El comando *${command}* no existe.\n✎ Usa *${usedPrefix}help* para ver la lista de comandos disponibles.`);
     }
 
-    if (cmdData.isOwner && !global.owner.map(num => num + '@s.whatsapp.net').includes(sender)) return m.reply(`ꕤ El comando *${command}* no existe.\n✎ Usa *${usedPrefix}help* para ver la lista de comandos disponibles.`);
+    if (cmdData.isOwner && !isOwners) return m.reply(`ꕤ El comando *${command}* no existe.\n✎ Usa *${usedPrefix}help* para ver la lista de comandos disponibles.`);
     if (cmdData.isAdmin && !isAdmins) return client.reply(m.chat, mess.admin, m);
     if (cmdData.botAdmin && !isBotAdmins) return client.reply(m.chat, mess.botAdmin, m);
 
