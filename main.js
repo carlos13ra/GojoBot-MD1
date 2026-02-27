@@ -11,6 +11,47 @@ import level from './commands/level.js';
 
 seeCommands();
 
+// Función para obtener todos los bots activos
+function getAllSessionBots() {
+  const sessionDirs = ['./Sessions/Subs'];
+  let bots = [];
+  for (const dir of sessionDirs) {
+    try {
+      const subDirs = fs.readdirSync(path.resolve(dir));
+      for (const sub of subDirs) {
+        const credsPath = path.resolve(dir, sub, 'creds.json');
+        if (fs.existsSync(credsPath)) {
+          bots.push(sub + '@s.whatsapp.net');
+        }
+      }
+    } catch {}
+  }
+  try {
+    const ownerCreds = path.resolve('./Sessions/Owner/creds.json');
+    if (fs.existsSync(ownerCreds)) {
+      const ownerId = global.client.user.id.split(':')[0] + '@s.whatsapp.net';
+      bots.push(ownerId);
+    }
+  } catch {}
+  return bots;
+}
+
+// Función para elegir un bot primary disponible para un grupo
+function choosePrimaryBot(groupId) {
+  if (!global.db.data.primaryBots) global.db.data.primaryBots = {};
+  const sessionBots = getAllSessionBots();
+  const assignedBots = Object.values(global.db.data.primaryBots);
+
+  for (const bot of sessionBots) {
+    if (!assignedBots.includes(bot)) {
+      global.db.data.primaryBots[groupId] = bot; // asignar bot al grupo
+      console.log(`✅ Nuevo primary bot para ${groupId}: ${bot}`);
+      return bot;
+    }
+  }
+  return null; // ningún bot disponible
+}
+
 export default async (client, m) => {
   if (!m.message) return;
 
@@ -116,31 +157,21 @@ ${t}`);
   const isOwners = [botJid, ...(settings.owner ? [settings.owner] : []), ...global.owner.map(num => num + '@s.whatsapp.net')].includes(sender);
 
   if (!isOwners && settings.self) return;
-
-  if (chat?.isBanned && !isOwners) {
-    console.log(`⚠️ Skipped: Chat ${from} está baneado`);
-    return;
-  }
-
-  if (chat.adminonly && !isAdmins) {
-    console.log(`⚠️ Skipped: Comando ${command} solo para admins`);
-    return;
-  }
+  if (chat?.isBanned && !isOwners) return console.log(`⚠️ Skipped: Chat ${from} está baneado`);
+  if (chat.adminonly && !isAdmins) return console.log(`⚠️ Skipped: Comando ${command} solo para admins`);
 
   // =========================
-  // Manejo primaryBot
+  // PrimaryBot por grupo con failover
   // =========================
-  const botprimaryId = chat?.primaryBot;
-  const isPrimarySelf = botprimaryId === botJid;
+  const botAssigned = global.db.data.primaryBots?.[from] || choosePrimaryBot(from);
+
+  if (botAssigned !== botJid) {
+    console.log(`🔹 Bot ${botJid} ignora grupo ${from}, primary es ${botAssigned}`);
+    return; // solo responde el bot asignado
+  }
+
+  // Comandos críticos que solo ejecuta el primary
   const criticalCommands = ['ban', 'unban', 'setbotname', 'setprefix', 'setowner'];
-
-  if (botprimaryId && !isPrimarySelf) {
-    if (criticalCommands.includes(command)) {
-      console.log(`⚠️ Bot no primary ignora comando crítico: ${command} en grupo ${from}`);
-      return;
-    }
-    console.log(`🔹 Bot no primary permite comando libre: ${command} en grupo ${from}`);
-  }
 
   // Ejecutar comando
   const cmdData = global.comandos.get(command);
@@ -149,9 +180,7 @@ ${t}`);
     return m.reply(`ꕤ El comando *${command}* no existe.\n✎ Usa *${usedPrefix}help* para ver la lista de comandos.`);
   }
 
-  if (cmdData.isOwner && !isOwners) {
-    return m.reply(`ꕤ El comando *${command}* no existe.`);
-  }
+  if (cmdData.isOwner && !isOwners) return m.reply(`ꕤ El comando *${command}* no existe.`);
   if (cmdData.isAdmin && !isAdmins) return client.reply(m.chat, '⚠️ Este comando requiere ser admin', m);
   if (cmdData.botAdmin && !isBotAdmins) return client.reply(m.chat, '⚠️ Este comando requiere que el bot sea admin', m);
 
@@ -160,6 +189,13 @@ ${t}`);
     users.stats[today].cmds++;
     user.exp = (user.exp || 0) + Math.floor(Math.random() * 100);
     user.name = m.pushName;
+
+    // Solo el primary ejecuta comandos críticos
+    if (criticalCommands.includes(command) && botAssigned !== botJid) {
+      console.log(`⚠️ Comando crítico ${command} ignorado por bot no primary`);
+      return;
+    }
+
     await cmdData.run(client, m, args, usedPrefix, command, text);
   } catch (error) {
     await client.sendMessage(m.chat, { text: `《✧》 Error al ejecutar el comando\n${error}` }, { quoted: m });
