@@ -61,7 +61,7 @@ let match = matchs.find(p => p[0])
 for (const name in global.plugins) {
 const plugin = global.plugins[name]
 if (!plugin) continue
-if (plugin.disabled) continue>
+if (plugin.disabled) continue
 if (typeof plugin.before === "function") {
 try {
 if (await plugin.before.call(client, m, { client })) {
@@ -178,5 +178,4 @@ await cmdData.run(client, m, args, usedPrefix, command, text)
 await client.sendMessage(m.chat, { text: `《✧》 Error al ejecutar el comando\n${error}` }, { quoted: m })
 }
 level(m)
-}
-    
+  }
